@@ -68,7 +68,7 @@ public:
 	int nShapeROI;
 
 	int pairsInGroup;
-	bool writeMask, writeSearch, writeTarget, writeROI;
+	bool writeMask, writeSearch, writeTarget, writeROI, sphericalMask;
 	float minCCpeak;
 	int nRelativeInfo, nPDBout;
 };
@@ -102,7 +102,9 @@ public:
 	int findXYZmaps();
 	int rotateSM();
 	int setVariables();
-	int normaliseMaps();
+	int normaliseMapsM();
+	int normaliseMapsFFT();
+	int normaliseMapsS();
 	int runFFTStd();
 	int findRStd();
 	int findCC();
@@ -141,7 +143,7 @@ public:
 	Ipp32f *mapX, *mapY, *mapZ;
 	Ipp32f *mapXini, *mapYini, *mapZini;
 
-	Ipp32fc **pmcT, **pmcT2, **pmcCCbest, **pmcQbest;
+	Ipp32fc **pmcT, **pmcT2, **pmcCCbest, **pmcQbest, **pmcRStd;
 
 	Ipp32fc *mcTc, *mcT2c, *mcRes, *mc1;
 	Ipp32fc* mcCC, *mcRStd, *mcShift;
@@ -187,6 +189,7 @@ public:
 	float cgx, cgy, cgz;
 	float pixT, pixM, pixTOut;
 	float targetOrig[3], maskOrig[3];
+	float radMaskInternal, radMaskExternal;
 
 	int nxIn, nyIn, nzIn, ntIn;
 	int nxOut, nyOut, nzOut, ntOut;
@@ -195,6 +198,7 @@ public:
 	int ntx, nty, ntz, ntt;
 	int nux, nuy, nuz, nut;
 
+	int iMaskInternal[3], iMaskExternal[3];
 	int irotCentMask[3], irotCentGlobal[3], iCornerOrig[3], iCornerGlobal[3];
 	int iMaskLen;
 
@@ -224,6 +228,8 @@ public:
 	DFTI_DESCRIPTOR_HANDLE desc_real_for, desc_comp_for, desc_comp_back, desc_real_back, desc_comp_back2, desc_comp_for_inplace;
 	float scale_for, scale_back;
 	
+	int maskChoice();
+	int findSpericalMask();
 	int correctMaskCentre();
 	int getNumberOfGroups();
 	int findPeaks();
