@@ -169,6 +169,13 @@ int XData::printParameters() {
 		fprintf(flog, "Write ROI map to file: no\n");
 	}
 
+	if (ip->sphericalMask) {
+		fprintf(flog, "Spherical mask is used: yes\n");
+	}
+	else {
+		fprintf(flog, "Spherical mask is used: no\n");
+	}
+
 	fprintf(flog, "Minimum CC value for a peak: %f\n", ip->minCCpeak);
 	fprintf(flog, "Number of peaks (extra info): %i\n", ip->nRelativeInfo);
 	fprintf(flog, "\n");

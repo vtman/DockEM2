@@ -158,7 +158,7 @@ XData::~XData() {
 	}
 
 	if (pmcRStd != nullptr) {
-		for (int i = 0; i < ip->numberOfThreads; i++) {
+		for (int i = 0; i < ip->pairsInGroup * ip->numberOfThreads; i++) {
 			if (pmcRStd[i] != nullptr) { ippsFree(pmcRStd[i]); pmcRStd[i] = nullptr; }
 		}
 		free(pmcRStd); pmcRStd = nullptr;
@@ -862,7 +862,9 @@ int XData::prepareMultiThread() {
 		td[i]->nyIn = nyIn;
 		td[i]->nzIn = nzIn;
 
-		td[i]->isExternal = isExternal;
+		td[i]->isExternal = !(ip->sphericalMask);
+
+		
 
 		td[i]->nScale = ip->outputReduction;
 
@@ -897,11 +899,12 @@ int XData::prepareMultiThread() {
 		td[i]->pmcT2 = pmcT2 + i * ip->pairsInGroup;
 		td[i]->pmcCCbest = pmcCCbest + i * ip->pairsInGroup;
 		td[i]->pmcQbest = pmcQbest + i * ip->pairsInGroup;
+		td[i]->pmcRStd = pmcRStd + i * ip->pairsInGroup;
 
 		td[i]->mM = (Ipp32f*)(pmcTemp[nTemp * i + 2]);
 		td[i]->mS = (Ipp32f*)(pmcTemp[nTemp * i + 2]) + ntIn;
 
-		td[i]->mcRStd = pmcRStd[i];
+		
 		td[i]->mcCC = pmcCC[i];
 		td[i]->mcShift = pmcShift[i];
 
@@ -1031,8 +1034,8 @@ int XData::allocateThreadMemory() {
 		}
 	}
 
-	pmcRStd = (Ipp32fc**)malloc(sizeof(Ipp32fc*) * ip->numberOfThreads);
-	for (int i = 0; i < ip->numberOfThreads; i++) {
+	pmcRStd = (Ipp32fc**)malloc(sizeof(Ipp32fc*) * ip->numberOfThreads*ip->pairsInGroup);
+	for (int i = 0; i < ip->numberOfThreads*ip->pairsInGroup; i++) {
 		pmcRStd[i] = ippsMalloc_32fc(ntOut);
 		if (pmcRStd[i] == nullptr) {
 			fprintf(flog, "Error: cannot allocate memory for cRStd.\n");
@@ -1052,11 +1055,13 @@ int XData::coreProcessing() {
 #pragma omp parallel
 	{
 		int tid, i;
+		bool firstTime;
 		TData *t;
 		
 		tid = omp_get_thread_num();
 		t = td[tid];
 		t->ncount = 0;
+		firstTime = true;
 
 #pragma omp for
 		for (i = 0; i < nGroupMain; i++) {
@@ -1064,18 +1069,26 @@ int XData::coreProcessing() {
 			ippsConvert_64f32f(matRot + 9 * i, t->matRot, 9);
 			t->findXYZmaps();
 			t->rotateSM();
-			t->normaliseMaps();
+			t->normaliseMapsM();
+			if (t->isExternal || firstTime) {
+				t->normaliseMapsFFT();
+			}
+			t->normaliseMapsS();
 			u1 = ((unsigned int)i) << 5;
 			for (int j = 0; j < ip->pairsInGroup; j++) {
 				t->uIndex = u1 + 2 * j;
 				t->mcTc = t->pmcT[j];
 				t->mcT2c = t->pmcT2[j];
+				t->mcRStd = t->pmcRStd[j];
 				t->vCCbest = t->pmcCCbest[j];
 				t->vQbest = t->pmcQbest[j];
-				if (t->isExternal) t->findRStd();
+				if (t->isExternal || firstTime) {
+					t->findRStd();
+				}
 				t->findCC();
 				t->findBest();
 			}
+			firstTime = false;
 			t->ncount++;
 			if (t->ncount % 10 == 0) {
 				printf("Thread (%i): %f %% done\n", tid, float(t->ncount) / float(nGroupMain)*100.0);
@@ -1090,6 +1103,13 @@ int XData::coreProcessing() {
 
 int XData::coreStdProcessing() {
 	Ipp32f st, st2;
+	int nSteps;
+	if (ip->sphericalMask) {
+		nSteps = 1;
+	}
+	else {
+		nSteps = nGroupEstimate;
+	}
 	printf("Estimating Std for MT\n");
 
 	omp_set_num_threads(ip->numberOfThreads);
@@ -1103,14 +1123,17 @@ int XData::coreStdProcessing() {
 		t->ncount = 0;
 
 #pragma omp for
-		for (i = 0; i < nGroupEstimate; i++) {
+		for (i = 0; i < nSteps; i++) {
 			ippsConvert_64f32f(matRot + 9 * i, t->matRot, 9);
 			t->findXYZmaps();
 			t->rotateSM();
-			t->normaliseMaps();
+			t->normaliseMapsM();
+			t->normaliseMapsFFT();
+			t->normaliseMapsS();
 			for (int j = 0; j < ip->pairsInGroup; j++) {
 				t->mcTc = t->pmcT[j];
 				t->mcT2c = t->pmcT2[j];
+				t->mcRStd = t->pmcRStd[j];
 				t->runFFTStd();
 				if(t->maxV > t->maxMTstd)  t->maxMTstd = t->maxV;
 			}
@@ -1211,8 +1234,12 @@ int XData::startProcessing() {
 	fprintf(flog, "\nTime spent (Mask map, in s): %i.%03i\n", idur / 1000, idur % 1000);
 
 	if (correctMaskCentre() != 0) return -30;
-	//return 0;
+	if (ip->sphericalMask) {
+		if (findSpericalMask() != 0) return -31;
+	}
 
+	if (maskChoice() != 0) return -32;
+	
 	if (readTargetMap() != 0) return -10;
 	if (cropTarget() != 0) return -11;
 	if (setFFT() != 0) return -12;

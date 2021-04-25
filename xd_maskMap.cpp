@@ -223,8 +223,11 @@ int XData::findMaskMap() {
 
 	ippsSubCRev_32f(vq2, 1.0f, mapM, mt);
 
-	DftiFreeDescriptor(&desc_real_back); desc_real_back = nullptr;
-	DftiFreeDescriptor(&desc_real_for); desc_real_for = nullptr;
+	if (!(ip->sphericalMask)) {
+
+		DftiFreeDescriptor(&desc_real_back); desc_real_back = nullptr;
+		DftiFreeDescriptor(&desc_real_for); desc_real_for = nullptr;
+	}
 
 	ippsFree(mc1); mc1 = nullptr;
 	ippsFree(mc2); mc2 = nullptr;
@@ -244,23 +247,31 @@ int XData::findMaskMap() {
 
 int XData::correctMaskCentre() {
 	Ipp32f *mapM;
-	Ipp32s* iv1, *ivX, *ivY, *ivZ;
-	double rbest, uxyz2, uz2, uy2, ux2, uyz2;
-	int idx, idy, idz, ind, ntot, nL;
-	bool t;
+	Ipp32s* iv1, *iX, * iY, * iZ;
+	
+	int ind, ntot;
+	int px, py, pz;
+	int qk, qi, qj;
 	int i_min, i_max, j_min, j_max, k_min, k_max;
+	int indX, indY, indZ;
 
-	nL = 100;
-
+	Ipp64f sx, sy, sz, sref, s2, snew;
+	Ipp64f* dRef, r1;
+	
+	bool t, isReset;
+	
 	mapM = mMask;
 
-	ivX = ippsMalloc_32s(nL);
-	ivY = ippsMalloc_32s(nL);
-	ivZ = ippsMalloc_32s(nL);
+	dRef = ippsMalloc_64f(2 * mx);
+
+	for (int i = 0; i < 2 * mx; i++) {
+		r1 = double(i - mx);
+		dRef[i] = r1 * r1;
+	}
 
 	iv1 = ippsMalloc_32s(mt);
 
-	/*ntot = 0;
+	ntot = 0;
 
 	for (int k = 1; k < mx - 1; k++) {
 		for (int i = 1; i < mx - 1; i++) {
@@ -286,11 +297,19 @@ int XData::correctMaskCentre() {
 		}
 	}
 
+
+	iX = ippsMalloc_32s(ntot);
+	iY = ippsMalloc_32s(ntot);
+	iZ = ippsMalloc_32s(ntot);
+
+	for (int i = 0; i < ntot; i++) {
+		iX[i] = iv1[i] % mx;
+		iY[i] = (iv1[i] / mx) % mx;
+		iZ[i] = iv1[i] / (mx * mx);
+	}
+
 	printf("Number of border voxels: %i\n", ntot);
 
-	ippsSortAscend_32s_I(iv1, ntot);
-
-	int qk, qi, qj;
 
 	j_min = iv1[0] % mx;
 	i_min = (iv1[0] / mx) % mx;
@@ -312,121 +331,183 @@ int XData::correctMaskCentre() {
 		k_max = myImax(k_max, qk);
 	}
 
-	printf("mx: %i\n", mx);
+	fprintf(flog, "Mask box: [%i, %i] x [%i, %i] x [%i, %i]\n", j_min, j_max, i_min, i_max, k_min, k_max);
 
-	printf("Mask box: [%i, %i] x [%i, %i] x [%i, %i]\n", j_min, j_max, i_min, i_max, k_min, k_max);
+	indX = irotCentMask[0];
+	indY = irotCentMask[1];
+	indZ = irotCentMask[2];
 
-	ivX[0] = iv1[0] % mx;
-	ivY[0] = (iv1[0] / mx) % mx;
-	ivZ[0] = iv1[0] / (mx * mx);
+	sref = 0.0;
 
-	Ipp64f dx, dy, dz, r2, rmax, rmin, w, rbig;
-
-	rbig = 9.e10;
-
-	for (int s = 1; s < nL; s++) {
-		ind = -1;
-		rmax = -1.0;
-		for (int p = 0; p < ntot; p++) {
-			qj = iv1[p] % mx;
-			qi = (iv1[p] / mx) % mx;
-			qk = iv1[p] / (mx * mx);
-
-			w = rbig;
-
-			for (int q = 0; q < s; q++) {
-				dx = double(ivX[q] - qj);
-				dy = double(ivY[q] - qi);
-				dz = double(ivZ[q] - qk);
-				r2 = dx * dx + dy * dy + dz * dz;
-				if (s == 5 && p == 17 && q == 4) {
-					int iuo = 0;
-				}
-				w = myDmin(w, r2);
-			}
-			if (w <= rmax) continue;
-			rmax = w;
-			ind = p;
-		}
-
-		ivX[s] = iv1[ind] % mx;
-		ivY[s] = (iv1[ind] / mx) % mx;
-		ivZ[s] = iv1[ind] / (mx * mx);
-
-		printf("\t%i\t %i, %i, %i\t%lf\t%i\n", s, ivX[s], ivY[s], ivZ[s], sqrt(rmax), ind);
+	for (int s = 0; s < ntot; s++) {
+		sx = dRef[iX[s] - indX + mx];
+		sy = dRef[iY[s] - indY + mx];
+		sz = dRef[iZ[s] - indZ + mx];
+		s2 = sx + sy + sz;
+		sref = myDmax(sref, s2);
 	}
-
-	int indX, indY, indZ;
-
-	indX = 0;
-	indY = 0;
-	indZ = 0;
-	rmin = rbig;
-
-	for (int k = 0; k < mx; k++) {
-		for (int i = 0; i < mx; i++) {
-			for (int j = 0; j < mx; j++) {
-				w = 0.0;
-				
-				for (int s = 0; s < nL; s++) {
-					dx = double(ivX[s] - j);
-					dy = double(ivY[s] - i);
-					dz = double(ivZ[s] - k);
-					r2 = dx * dx + dy * dy + dz * dz;
-					w = myDmax(w, r2);
-				}
-
-				if (w >= rmin)continue;
-				rmin = w;
-				indZ = k;
-				indY = i;
-				indX = j;
-			}
-		}
-	}
-
-	printf("rmin: %f\n", sqrt(rmin));
+	fprintf(flog, "Original centre of mask (%i, %i, %i), radius (pixels, mask): %f\n", indX, indY, indZ, sqrt(sref));
 	
-	irotCentMask[0] = indX;
-	irotCentMask[1] = indY;
-	irotCentMask[2] = indZ;
+	do {
+		isReset = false;
 
-	*/
+		for (int kk = -1; kk <= 1; kk++) {
+			pz = indZ + kk;
+			for (int ii = -1; ii <= 1; ii++) {
+				py = indY + ii;
+				for (int jj = -1; jj <= 1; jj++) {
+					px = indX + jj;
+					if (kk == 0 && ii == 0 && jj == 0)continue;
+					snew = 0.0;
 
-	rbest = -1.0;
+					for (int s = 0; s < ntot; s++) {
+						sx = dRef[iX[s] - px + mx];
+						sy = dRef[iY[s] - py + mx];
+						sz = dRef[iZ[s] - pz + mx];
+						s2 = sx + sy + sz;
+						snew = myDmax(snew, s2);
+						if (snew >= sref) break;
+					}
+					if (snew >= sref) continue;
 
-	for (int k = 0; k < mx; k++) {
-		idz = k - irotCentMask[2];
-		uz2 = double(idz * idz);
-		for (int i = 0; i < mx; i++) {
-			idy = i - irotCentMask[1];
-			uy2 = double(idy * idy);
-			uyz2 = uz2 + uy2;
-			for (int j = 0; j < mx; j++) {
-				idx = j - irotCentMask[0];
-				ux2 = double(idx * idx);
-				uxyz2 = uyz2 + ux2;
-				if (mapM[(k * mx + i) * mx + j] < 0.8) continue;
-				rbest = myDmax(rbest, uxyz2);
+					indX = px;
+					indY = py;
+					indZ = pz;
+					sref = snew;
+					isReset = true;
+					break;
+				}
+				if (isReset)break;
 			}
+			if (isReset)break;
 		}
-	}
+	} while (isReset);
 
+	iMaskExternal[0] = indX;
+	iMaskExternal[1] = indY;
+	iMaskExternal[2] = indZ;
 
-	//printf("New center: %i, %i, %i (%f)\n", indX, indY, indZ, sqrt(rbest));
-	//printf("old center: %i, %i, %i (%f)\n", irotCentMask[0], irotCentMask[1], irotCentMask[2], sqrt(rbest));
+	radMaskExternal = sqrt(sref);
+
+	fprintf(flog, "Updated external centre of mask (%i, %i, %i), radius (pixels, mask): %f\n", iMaskExternal[0], iMaskExternal[1], iMaskExternal[2], radMaskExternal);
 
 	ippsFree(iv1); iv1 = nullptr;
-	ippsFree(ivX); ivX = nullptr;
-	ippsFree(ivY); ivY = nullptr;
-	ippsFree(ivZ); ivZ = nullptr;
+
+	ippsFree(iX); iX = nullptr;
+	ippsFree(iY); iY = nullptr;
+	ippsFree(iZ); iZ = nullptr;
+	ippsFree(dRef); dRef = nullptr;
+
+	return 0;
+}
 
 
+int XData::findSpericalMask() {
+	Ipp64f r1, r2, r3, rr;
+	Ipp64f dx, dy, dz, d1, d2, d3;
+	Ipp32f* vIO;
+	Ipp32fc* vc1, * vc2, *vc3;
+	Ipp32f v1, v2;
+	int ind;
+
+	int nfx, nfy, nfz, nft;
+	nfx = mx / 2 + 1;
+	nfy = mx;
+	nfz = mx;
+	nft = nfx * nfy * nfz;
+
+	vc1 = ippsMalloc_32fc(nft);
+	vc2 = ippsMalloc_32fc(nft);
+	vc3 = ippsMalloc_32fc(nft);
+	vIO = ippsMalloc_32f(mx * mx * mx);
+
+	r1 = 0.0;
+	r2 = radMaskExternal;
+
+	status_fft = DftiComputeForward(desc_real_for, mMask, vc1);
+
+
+	do {
+		r3 = 0.5 * (r1 + r2);
+		rr = r3 * r3;
+		ippsZero_32f(vIO, mx * mx * mx);
+		for (int k = 0; k < mx; k++) {
+			dz = myImin(k, mx - k);
+			d1 = dz * dz;
+			for (int i = 0; i < mx; i++) {
+				dy = myImin(i, mx - i);
+				d2 = d1 + dy * dy;
+				for (int j = 0; j < mx; j++) {
+					dx = myImin(j, mx - j);
+					d3 = d2 + dx * dx;
+					if (d3 < rr) vIO[(mx * k + i) * mx + j] = 1.0f;
+				}
+			}
+		}
+		ippsDotProd_32f(vIO, vIO, mx * mx * mx, &v1);
+		//printf("%f\t%f\n", r3, v1);
+		v1 -= 0.5f;
+
+		status_fft = DftiComputeForward(desc_real_for, vIO, vc2);
+
+		ippsMul_32fc_I(vc1, vc2, nft);
+
+		status_fft = DftiComputeBackward(desc_real_back, vc2, vIO);
+
+		ippsMaxIndx_32f(vIO, mt, &v2, &ind);
+		//printf("Max value: %f\n", v2);
+
+		if (v2 < v1) {
+			r2 = r3;
+		}else{
+			r1 = r3;
+			iMaskInternal[0] = ind % mx;
+			iMaskInternal[1] = (ind / mx) % mx;
+			iMaskInternal[2] = ind / (mx * mx);
+			radMaskInternal = r1;
+			printf("Int radius: %f (%i, %i, %i)\n", r1, iMaskInternal[0], iMaskInternal[1], iMaskInternal[2]);
+			
+		}
+
+	} while (r2 - r1 > 0.1);
+
+	ippsZero_32f(mMask, mt);
+
+	rr = radMaskInternal * radMaskInternal;
+
+	for (int k = 0; k < mx; k++) {
+		dz = double(k - iMaskInternal[2]);
+		d1 = dz * dz;
+		for (int i = 0; i < mx; i++) {
+			dy = double(i - iMaskInternal[1]);
+			d2 = d1 + dy * dy;
+			for (int j = 0; j < mx; j++) {
+				dx = double(j - iMaskInternal[0]);
+				d3 = d2 + dx * dx;
+				if (d3 < rr) mMask[(mx * k + i) * mx + j] = 1.0f;
+			}
+		}
+	}
+
+	ippsFree(vIO); vIO = nullptr;
+	ippsFree(vc1); vc1 = nullptr;
+	ippsFree(vc2); vc2 = nullptr;
+	ippsFree(vc3); vc3 = nullptr;
+
+	DftiFreeDescriptor(&desc_real_back); desc_real_back = nullptr;
+	DftiFreeDescriptor(&desc_real_for); desc_real_for = nullptr;
+
+	fprintf(flog, "\nInternal sphere (%i, %i, %i), radius (pixels, mask): %f\n\n", iMaskInternal[0], iMaskInternal[1], iMaskInternal[2], radMaskInternal);
+
+	return 0;
+}
+
+int XData::maskChoice() {
 	if (ip->writeMask) {
 		sprintf(outputFileName, "%s/%s_mapM.mrc", ip->outputFolder, ip->outputPrefix);
-		if (writeMRC(flog, outputFileName, mapM, mx, mx, mx, maskOrig, pixM) != 0) return -1;
+		if (writeMRC(flog, outputFileName, mMask, mx, mx, mx, maskOrig, pixM) != 0) return -1;
 	}
-	
+
 	pmMS = (Ipp32f**)malloc(sizeof(Ipp32f*) * ip->numberOfThreads);
 
 	for (int i = 0; i < ip->numberOfThreads; i++) {
@@ -449,12 +530,24 @@ int XData::correctMaskCentre() {
 		ippsCopy_32f(pmMS[0], pmMS[i], mt);
 	}
 
-	borderSize = (float)sqrt(rbest) * pixM;
+	if (ip->sphericalMask) {
+		irotCentMask[0] = iMaskInternal[0];
+		irotCentMask[1] = iMaskInternal[1];
+		irotCentMask[2] = iMaskInternal[2];
+		borderSize = radMaskInternal * pixM;
+	}
+	else {
+		irotCentMask[0] = iMaskExternal[0];
+		irotCentMask[1] = iMaskExternal[1];
+		irotCentMask[2] = iMaskExternal[2];
+		borderSize = radMaskExternal * pixM;
+	}
 
+
+	fprintf(flog, "Rotation centre (mask, pixels): %i, %i, %i\n", irotCentMask[0], irotCentMask[1], irotCentMask[2]);
 	fprintf(flog, "Border size (in A): %f\n", borderSize);
 
 	printf("... Done.\n");
-
 	return 0;
 }
 

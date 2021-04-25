@@ -8,6 +8,7 @@ InputParameters::InputParameters() {
 	writeROI = false;
 	writeSearch = false;
 	writeTarget = false;
+	sphericalMask = false;
 	
 	minCCpeak = 0.1f;
 	nRelativeInfo = 10;
@@ -120,6 +121,11 @@ int InputParameters::readInputParameters(int argc, char** argv) {
 
 			if (strcmp(p1, "-writetarget") == 0) {
 				if (argv[i + 1][0] == 'y' || argv[i + 1][0] == 'Y') writeTarget = true;
+				t = true;
+			}
+
+			if (strcmp(p1, "-sphericalmask") == 0) {
+				if (argv[i + 1][0] == 'y' || argv[i + 1][0] == 'Y') sphericalMask = true;
 				t = true;
 			}
 
@@ -303,6 +309,7 @@ int InputParameters::printUsage() {
 	printf("\t -writeSearch s          Write search map to file (yes, NO)\n");
 	printf("\t -writeTarget s          Write target map [used for FFT] to file (yes, NO)\n");
 	printf("\t -writeROI s             Write ROI of target map to file (yes, NO)\n");
+	printf("\t -sphericalMask s        Spherical masks are used (yes, NO)\n");
 	printf("\t -minCCpeak f            Min value of a peak to be reported (default: 0.1)\n");
 	printf("\t -nRelativeInfo i        Extra information for the first n peaks (default: 10)\n");
 	printf("\n");

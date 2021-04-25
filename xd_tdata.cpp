@@ -49,62 +49,45 @@ int TData::setVariables() {
 	rotShift[1] = float(iRC_mask[1]);
 	rotShift[2] = float(iRC_mask[2]);
 
-	isExternal = true;
 	return 0;
 }
 
-int TData::normaliseMaps() {
+int TData::normaliseMapsM() {
 	ippsSum_32f(mM, ntIn, &const3, IppHintAlgorithm::ippAlgHintAccurate);
 	ippsDivC_32f_I(const3, mM, ntIn);
-	ippsSum_32f(mS, ntIn, &const6, IppHintAlgorithm::ippAlgHintAccurate);
-	ippsAddProductC_32f(mM, -const6, mS, ntIn);
-	ippsSum_32f(mS, ntIn, &const6, IppHintAlgorithm::ippAlgHintAccurate);
-	ippsDotProd_32f(mS, mS, ntIn, &const2);
-	const2 = 1.0f/sqrt(const2*const3);
-	ippsMulC_32f_I(const2, mS, ntIn);
 	
-
-	status_fft = DftiComputeForward(desc_real_for, mS, mcS);
-	status_fft = DftiComputeForward(desc_real_for, mM, mcM);
-
-	real2compFFT(mcS, nxIn, nyIn, nzIn);
-	real2compFFT(mcM, nxIn, nyIn, nzIn);
-
-	ippsMul_32fc_I(mcShift, mcS, ntIn);
-	ippsMul_32fc_I(mcShift, mcM, ntIn);
-
-	ippsConj_32fc_I(mcS, ntIn);
-	ippsConj_32fc_I(mcM, ntIn);
-
-
-	/*
-	Ipp32f* v1, * v2;
-	Ipp32fc * vc;
-
-	vc = ippsMalloc_32fc(ntIn);
-	v1 = ippsMalloc_32f(ntIn);
-	v2 = ippsMalloc_32f(ntIn);
-
-	status_fft = DftiComputeBackward(desc_comp_back, mcS, vc);
-	ippsReal_32fc(vc, v1, ntIn);
-	
-	char outputFileName[1000];
-	float morig[3];
-	morig[0] = 0.0f;
-	morig[1] = 0.0f;
-	morig[2] = 0.0f;
-	FILE* fo;
-	fo = fopen("C:\\Temp2\\xDock\\0420\\out\\fout.txt", "w");
-	sprintf(outputFileName, "C:\\Temp2\\xDock\\0420\\out\\_mapS.mrc");
-	writeMRC(fo, outputFileName, v1, nxIn, nyIn, nzIn, morig, pixT);
-	fclose(fo);
-
-	ippsFree(vc); vc = nullptr;
-	ippsFree(v1); v1 = nullptr;
-	ippsFree(v2); v2 = nullptr;
-	*/
 	return 0;
 }
+
+int TData::normaliseMapsFFT() {
+	status_fft = DftiComputeForward(desc_real_for, mM, mcM);
+	real2compFFT(mcM, nxIn, nyIn, nzIn);
+	ippsMul_32fc_I(mcShift, mcM, ntIn);
+	ippsConj_32fc_I(mcM, ntIn);
+
+	return 0;
+}
+
+
+
+int TData::normaliseMapsS() {
+	ippsSum_32f(mS, ntIn, &const6, IppHintAlgorithm::ippAlgHintAccurate);
+	ippsAddProductC_32f(mM, -const6, mS, ntIn);
+
+	ippsSum_32f(mS, ntIn, &const6, IppHintAlgorithm::ippAlgHintAccurate);
+	ippsDotProd_32f(mS, mS, ntIn, &const2);
+	const2 = 1.0f / sqrt(const2 * const3);
+	ippsMulC_32f_I(const2, mS, ntIn);
+
+	status_fft = DftiComputeForward(desc_real_for, mS, mcS);
+
+	real2compFFT(mcS, nxIn, nyIn, nzIn);
+	ippsMul_32fc_I(mcShift, mcS, ntIn);
+	ippsConj_32fc_I(mcS, ntIn);
+
+	return 0;
+}
+
 
 int TData::findRStd() {
 	ippsMul_32fc(mcM, mcTc, mcRes, ntIn);
