@@ -93,8 +93,8 @@ int XData::getNumberOfGroups() {
 		return -1;
 	}
 
-	_fseeki64(fa, 0, SEEK_END);
-	fSize = _ftelli64(fa);
+	fseeko(fa, 0, SEEK_END);
+	fSize = ftello(fa);
 	fprintf(flog, "File size: %lld\n", fSize);
 
 	nGroupsAvailable = fSize / (40);
